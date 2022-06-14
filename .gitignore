@@ -1,7 +1,7 @@
 /*.zip
-app/data/
-app/logs/
-app/app_code/venv/
+data/
+logs/
+app_code/venv/
 
 
 # Byte-compiled / optimized / DLL files
