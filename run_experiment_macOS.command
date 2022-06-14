@@ -26,7 +26,7 @@ echo "">&3
 #check if the venv folder already exists
 if [[ -d "venv" ]];
 then
-	echo '[AXEM] Folder "venv" found, starting app...' >&3
+	echo '[CAST] Folder "venv" found, starting app...' >&3
 	#if it does, activate & run
 	eval "$(pyenv init --path)"
 	pyenv rehash
@@ -38,17 +38,17 @@ then
 	sed -i '1s/.*/#!\/usr\/bin\/env python/' venv/bin/pip*
 	source venv/bin/activate
 	python3.10 main.py site_specific_experiment/experiment.py
-	echo "[AXEM] App terminated. You may now close this window." >&3
+	echo "[CAST] App terminated. You may now close this window." >&3
 	read -p "" x && exit
 fi
 
-echo '[AXEM] Folder "venv" not found, checking dependencies...' >&3
+echo '[CAST] Folder "venv" not found, checking dependencies...' >&3
 
 if [ "$(uname)" == "Darwin" ]
 then
 	if ! command -v xcode-select &> /dev/null
 	then #xcode is absent
-		echo '[AXEM] Installing Xcode...' >&3
+		echo '[CAST] Installing Xcode...' >&3
 		XCODE_MESSAGE="$(osascript -e 'tell app "System Events" to display dialog "Please click \"install\" when Command Line Developer Tools appears"')"
 		if [ "$XCODE_MESSAGE" = "button returned:OK" ]; then
 			xcode-select --install
@@ -56,13 +56,13 @@ then
 				echo -n "." >&3
 				sleep 1
 			done
-			echo '[AXEM] Xcode installed.' >&3
+			echo '[CAST] Xcode installed.' >&3
 		else
-			echo "[AXEM] You have cancelled the installation, please rerun the installer." >&3
+			echo "[CAST] You have cancelled the installation, please rerun the installer." >&3
 			exit
 		fi
 	else
-		echo '[AXEM] Found Xcode.' >&3
+		echo '[CAST] Found Xcode.' >&3
 	fi
 else
 	#we're on linux, so install dependencies
@@ -78,19 +78,19 @@ fi
 
 if [ "$(which brew)" ]
 then
-	echo "[AXEM] Found brew." >&3
+	echo "[CAST] Found brew." >&3
 else
 	#install brew "locally" to ~/.homebrew (avoids needing admin rights)
-	echo '[AXEM] Installing brew...' >&3
+	echo '[CAST] Installing brew...' >&3
 	mkdir $BREW_HOME
 	curl -L https://github.com/Homebrew/brew/tarball/master | tar xz --strip 1 -C $BREW_HOME
 	eval "$($BREW_HOME/bin/brew shellenv)"
 	brew update --force --quiet
 	chmod -R go-w "$(brew --prefix)/share/zsh"
-	echo '[AXEM] Brew installed.' >&3
+	echo '[CAST] Brew installed.' >&3
 fi
 
-echo '[AXEM] Installing pyenv dependencies via brew...' >&3
+echo '[CAST] Installing pyenv dependencies via brew...' >&3
 #install python-building dependencies on mac
 if [ "$(uname)" == "Darwin" ]
 then
@@ -100,14 +100,14 @@ else
 	#on linux, need gcc (even though we installed it already)
 	brew install gcc 
 fi
-echo '[AXEM] Pyenv dependencies installed.' >&3
+echo '[CAST] Pyenv dependencies installed.' >&3
 
-echo '[AXEM] Installing pyenv...' >&3
+echo '[CAST] Installing pyenv...' >&3
 brew install pyenv 
 eval "$(pyenv init --path)"
-echo '[AXEM] Pyenv installed.' >&3
+echo '[CAST] Pyenv installed.' >&3
 
-echo '[AXEM] Installing Python 3.10 ... ' >&3
+echo '[CAST] Installing Python 3.10 ... ' >&3
 
 if [ "$(uname)" == "Darwin" ]
 then
@@ -120,20 +120,20 @@ else
 fi
 
 pyenv rehash
-echo '[AXEM] Python 3.10 Installed.' >&3
+echo '[CAST] Python 3.10 Installed.' >&3
 
-echo "[AXEM] Creating venv..." >&3
+echo "[CAST] Creating venv..." >&3
 python3.10 -m venv --copies venv
 #hack from: https://aarongorka.com/blog/portable-virtualenv/
 sed -i '43s/.*/VIRTUAL_ENV="$(cd "$(dirname "$(dirname "${BASH_SOURCE[0]}" )")" \&\& pwd)"/' venv/bin/activate
 sed -i '1s/.*/#!\/usr\/bin\/env python/' venv/bin/pip*
 source venv/bin/activate
-echo "[AXEM] Installing python packages..." >&3
+echo "[CAST] Installing python packages..." >&3
 python3.10 -m pip install --upgrade setuptools
 python3.10 -m pip install --upgrade pip
 python3.10 -m pip install wheel
 python3.10 -m pip install -r requirements.txt
-echo "[AXEM] Starting app..." >&3
-python3.10 main.py site_specific_experiment/experiment.py
-echo "[AXEM] App terminated. You may now close this window." >&3
+echo "[CAST] Starting app..." >&3
+sudo python3.10 main.py site_specific_experiment/experiment.py
+echo "[CAST] App terminated. You may now close this window." >&3
 read -p "" x && exit
