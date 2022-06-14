@@ -2,15 +2,15 @@
 # REMOVE THIS SECTION WHEN DONE DEVELOPING THE CORE EXPERIMENT
 ########
 
-import multiprocessing
-from collections import OrderedDict
-from file_forker import q_class
-this_ctx = multiprocessing.get_context('spawn')
-rx_dict = {}
-rx_dict['parent'] = q_class(name='parent_to_self',tx='parent',rx='self',ctx=this_ctx)
-rx_dict['gamepad'] = q_class(name='parent_to_self',tx='parent',rx='self',ctx=this_ctx)
-tx_dict = {}
-tx_dict['parent'] = q_class(name='self_to_parent',tx='self',rx='parent',ctx=this_ctx)
+# import multiprocessing
+# from collections import OrderedDict
+# from file_forker import q_class
+# this_ctx = multiprocessing.get_context('spawn')
+# rx_dict = {}
+# rx_dict['parent'] = q_class(name='parent_to_self',tx='parent',rx='self',ctx=this_ctx)
+# rx_dict['gamepad'] = q_class(name='parent_to_self',tx='parent',rx='self',ctx=this_ctx)
+# tx_dict = {}
+# tx_dict['parent'] = q_class(name='self_to_parent',tx='self',rx='parent',ctx=this_ctx)
 
 
 ########
@@ -37,8 +37,6 @@ if os.getcwd().split('/')[-1]!='app_code':
 
 viewing_distance = 2.0 #units can be anything so long as they match those used in screen_width below
 screen_width = 1.0 #units can be anything so long as they match those used in viewing_distance above
-screen_size = (1920,1080) #pixel resolution of the screen
-window_size = (1800,800) #pixel resolution of the screen
 
 response_modality = 'trigger' # 'key' or 'button' or 'trigger'
 left_key = 'z' #specify the key for the left-pointing target arrows
@@ -49,7 +47,7 @@ trigger_criterion_value = 0 #specify the trigger criterion
 
 target_direction_list = ['left','right']
 target_location_list = ['left','right']
-flanker_list = ['neutral','congruent','incongruent'] #specify the types of flankers to employ. Options: neutral (no flankers), congruent, incongruent
+flankers_list = ['neutral','congruent','incongruent'] #specify the types of flankers to employ. Options: neutral (no flankers), congruent, incongruent
 warning_list = ['present','absent']
 cue_validity_list = ['valid','invalid']
 arrow_validity_ratio = 2 #2:1 valid:invalid trials
@@ -72,11 +70,11 @@ feedback_duration = 1.000 #specify the feedback_duration
 trials_per_break = 24
 number_of_blocks_per_task = 2 #specify the number of blocks
 
-instruction_size_in_degrees = 1 #specify the size of the instruction text
-feedback_size_in_degrees = 1 #specify the size of the feedback text (if used)
+instruction_size_in_degrees = .5 #specify the size of the instruction text
+feedback_size_in_degrees = .5 #specify the size of the feedback text (if used)
 target_width_in_degrees = 2 #specify the width of the target arrows
 offset_in_degrees = 5 #specify the vertical offset of the target from fixation
-flanker_seperation_in_degrees = .2 #specify the size of the space between flankers
+flankers_seperation_in_degrees = .2 #specify the size of the space between flankers
 
 arrow_width_in_degrees = 1 #(when horizontal)
 arrow_thickness = .15
@@ -100,15 +98,94 @@ import soundfile as sf #for loading sounds
 import sounddevice as sd #for playing sounds
 import aggdraw
 import math
-import sys
-import os
 import random
 import time
 from collections import OrderedDict
+import json
+import numpy as np
+
+########
+# Initialize the sound class
+########
+class sound:
+	def __init__(self,path,play,volume):
+		self.volume = volume
+		self.load_audio(path)
+		if play:
+			self.play()
+
+	def set_volume(self,value):
+		self.volume = value
+
+	def load_audio(self, path: str):
+		self.audio_file = sf.SoundFile(path)
+		self.audio_data = self.audio_file.read()
+		self.audio_file.close()
+		self.tot_frames = len(self.audio_data)
+		self.last_frame = 0
+		self.num_channels = len(self.audio_data.shape)
+		# print(self.audio_data.shape)
+		if self.num_channels==1:
+			self.audio_data = np.column_stack([self.audio_data,self.audio_data])
+		# print(self.audio_data.shape)
+
+
+	def callback_closure(self):
+		# last_frame = -1
+		def callback(data_out: np.ndarray, frames: int, time, status: sd.CallbackFlags) -> None:
+			# nonlocal last_frame
+			assert not status
+			# print(self.audio_data.shape)
+			end_frame = self.last_frame + frames
+			# print([self.tot_frames,self.last_frame,frames,end_frame,end_frame - self.tot_frames])
+			if(end_frame<=self.tot_frames):
+				data_out[:] = self.volume * self.audio_data[self.last_frame:end_frame,]
+			else:
+				# data_out[:] = self.volume * self.audio_data[:frames,]
+				# end_frame = frames
+				# print([self.last_frame,frames,end_frame,self.tot_frames])
+				end_frame = end_frame - self.tot_frames
+				tmp1 = self.audio_data[self.last_frame:,]
+				tmp2 = self.audio_data[:end_frame,]
+				if (tmp1.shape[0]==0):
+					data_out[:] = self.volume * tmp2
+				elif (tmp2.shape[0]==0):
+					data_out[:] = self.volume * tmp1
+				else:
+					data_out[:] = self.volume * np.concatenate(tmp1,tmp2)
+			self.last_frame = end_frame
+		return callback
+
+	def play(self):
+		self.stream = sd.OutputStream(
+			samplerate=self.audio_file.samplerate,
+			channels=2,
+			callback=self.callback_closure()
+		)
+		self.stream.start()
+
+	def __del__(self):
+		self.stream.close(ignore_errors=True)
+
+warning_sound = sound('stimuli/pink_stereo.wav',True,0)
+background_sound = sound('stimuli/pink_mono.wav',True,0)
+
+########
+# Initialize the random number generator
+########
+random.seed()
+
 
 ########
 # define trial class
 ########
+
+warning_intensity_list = ['lo','hi'] # in endo, lo means absent
+cue_validity_list = ['invalid','valid']
+arrow_validity_ratio = 2 #2:1 valid:invalid trials
+flankers_list = ['incongruent','congruent','neutral'] #specify the types of flankers to employ. Options: neutral (no flankers), congruent, incongruent
+target_location_list = ['left','right']
+target_direction_list = ['left','right']
 
 def list_to_viDict(l):
 	return({v:i for i,v in enumerate(l)})
@@ -116,115 +193,100 @@ def list_to_viDict(l):
 class events_info_class:
 	def __init__(self,**kwargs):
 		self.od = OrderedDict()
+		col = 0
 		for key, value in kwargs.items():
-			self.od[key] = {}
+			col += 1
+			self.od[key] = {'col':col}
 			if value is not None:
 				self.od[key]['mapping'] = list_to_viDict(value)
+	def randomize(self,n_or_x):
+		out = []
+		for warning_intensity in self.od['warning_intensity']['mapping'].keys():
+			for cue_validity in self.od['cue_validity']['mapping'].keys():
+				for flankers in self.od['flankers']['mapping'].keys():
+					for target_location in self.od['target_location']['mapping'].keys():
+						for target_direction in self.od['target_direction']['mapping'].keys():
+							core_trial_info = OrderedDict()
+							core_trial_info['warning_intensity'] = warning_intensity
+							core_trial_info['cue_validity'] = cue_validity
+							core_trial_info['flankers'] = flankers
+							core_trial_info['target_location'] = target_location
+							core_trial_info['target_direction'] = target_direction
+							all_trial_info = OrderedDict()
+							for key,value in self.od.items():
+								print([key,value])
+								if key in ['warning_intensity','cue_validity','flankers','target_location','target_direction']:
+									print('adding')
+									all_trial_info[key] = core_trial_info[key]
+								else:
+									print('skipping')
+									all_trial_info[key] = None
+							out.append(all_trial_info)
+							if (n_or_x=='n') & (cue_validity=='valid'):
+								for i in range(arrow_validity_ratio-1):
+									out.append(out[-1])
+		print(out)
+		random.shuffle(out)
+		return(out)
+	def write_vals(self,trial_info):
+		out = []
+		for key,value in trial_info.items():
+			if value is None:
+				out.append(-999)
+			else:
+				if 'mapping' in self.od[key]:
+					out.append(self.od[key]['mapping'][value])
+				else:
+					out.append(value)
+		return(out)
 
 events_info = events_info_class(
 	block = None
 	, trial = None
 	, last_break_duration = None
 	, fixation_interval = None
-	, warning_intensity = ['none','lo','hi']
+	, warning_intensity = warning_intensity_list
 	, cue_validity = cue_validity_list
 	, flankers = flankers_list
 	, target_location = target_location_list
 	, target_direction = target_direction_list
-	, anticipation = None
+	, anticipation = ['FALSE','TRUE']
 	, response = target_direction_list
-	, error = None
+	, error = ['FALSE','TRUE']
+	, rt = None
+	, feedback_response = ['FALSE','TRUE']
+	, warning_on_time_delta1 = None
+	, warning_on_time_delta2 = None
+	, warning_off_time_delta1 = None
+	, warning_off_time_delta2 = None
+	, target_on_time_delta = None
 )
-event_cols['block'] = {}
-event_cols['trial'] = {}
-event_cols['last_break_duration'] = {}
-event_cols['fixation_interval'] = {}
-event_cols['warning_intensity'] = {'mapping' = {}}
-event_cols['cue_validity'] = {'mapping' = list_to_viDict(cue_validity_list)}
-event_cols['cued_location'] = {'mapping' = list_to_viDict(target_location_list)}
-event_cols['flankers'] = {'mapping' = list_to_viDict(flankers_list)}
-event_cols['target_location'] = {'mapping' = list_to_viDict(target_location_list)}
-event_cols['target_direction'] = {'mapping' = list_to_viDict(target_direction_list)}
-event_cols['anticipation'] = {'mapping' = {'FALSE':0,'TRUE':1}}
-event_cols['response'] = {'mapping' = list_to_viDict(target_direction_list)}
-event_cols['error'] = {'mapping' = {'FALSE':0,'TRUE':1}}
-event_cols['rt'] = {}
-event_cols['feedback_response'] = {'mapping' = {'FALSE':0,'TRUE':1}}
-
-
-
-class trial_info:
-	def __init__(self,**kwargs):
-		self.od = OrderedDict()
-		for key, value in kwargs.items():
-			self.od[key] = value
-	def get(self,key):
-		return self.od[key]
-	def put(self,**kwargs):
-		self.od[key] = value
-	def 
-
-
-
-event_cols = OrderedDict()
-event_cols['block'] = {}
-event_cols['trial'] = {}
-event_cols['last_break_duration'] = {}
-event_cols['fixation_interval'] = {}
-event_cols['warning_intensity'] = {'mapping' = {}}
-event_cols['cue_validity'] = {'mapping' = list_to_viDict(cue_validity_list)}
-event_cols['cued_location'] = {'mapping' = list_to_viDict(target_location_list)}
-event_cols['flankers'] = {'mapping' = list_to_viDict(flankers_list)}
-event_cols['target_location'] = {'mapping' = list_to_viDict(target_location_list)}
-event_cols['target_direction'] = {'mapping' = list_to_viDict(target_direction_list)}
-event_cols['anticipation'] = {'mapping' = {'FALSE':0,'TRUE':1}}
-event_cols['response'] = {'mapping' = list_to_viDict(target_direction_list)}
-event_cols['error'] = {'mapping' = {'FALSE':0,'TRUE':1}}
-event_cols['rt'] = {}
-event_cols['feedback_response'] = {'mapping' = {'FALSE':0,'TRUE':1}}
-
-#add column-number
-for i in 1:length(event_cols):
-	event_cols[i]['col'] = i
-
-def make_trial_data_dict(
-	block
-	, trial
-	, last_break_duration
-	, fixation_interval
-	, warning_intensity
-	, cue_validity
-	, cued_location
-	, flankers
-	, target_location
-	, target_direction
-	, 
-)
-
-def prep_data_for_writer(data_dict):
-	array_for_writer = []
-	for key,value in data_dict.item():
-		array_for_writer.append(event_cols[key][value])
-
-
-
-########
-# Initialize the random number generator
-########
-random.seed()
 
 ########
 # Initialize the window
 ########
 
+# lots of stuff here cribbed from klibs
+if os.name == 'nt':
+	# set video driver explicitly on Windows to avoid misdetection problems
+	os.environ['SDL_VIDEODRIVER'] = 'windows'
+
+SCREEN_FLAGS = (
+	sdl2.SDL_WINDOW_SHOWN | sdl2.SDL_WINDOW_FULLSCREEN_DESKTOP |
+	sdl2.SDL_WINDOW_OPENGL | sdl2.SDL_WINDOW_ALLOW_HIGHDPI
+)
+
+sdl2.SDL_Init(sdl2.SDL_INIT_VIDEO)
+sdl2.mouse.SDL_ShowCursor(sdl2.SDL_DISABLE)
+sdl2.SDL_PumpEvents()
+display_mode = sdl2.video.SDL_DisplayMode()
+sdl2.SDL_GetCurrentDisplayMode(0, display_mode)
+
 exp_window = sdl2.ext.Window(
 	'Experiment'
-	, size = window_size
-	, position = [
-		  int((screen_size[0]/2)-(window_size[0]/2))
-		, int((screen_size[1]/2)-(window_size[1]/2))
-	]
-	, flags = sdl2.SDL_WINDOW_SHOWN
+	, size = (display_mode.w,display_mode.h)
+	, position = [0,0]
+	, flags = SCREEN_FLAGS
 )
 exp_window_surf = sdl2.SDL_GetWindowSurface(exp_window.window).contents
 #exp_window_array = sdl2.ext.pixels3d(exp_window_surf.contents)
@@ -233,30 +295,22 @@ exp_window.show()
 exp_window.refresh()
 sdl2.SDL_SetWindowResizable(exp_window.window,False)
 
-window_x_center = window_size[0]/2 #store the location of the screen's x center
-window_y_center = window_size[1]/2 #store the location of the screen's y center
-
-
-########
-# initialize the sound objects
-########
-
-warning_sound = sf.read('stimuli/pink_stereo.wav')
-background_sound = sf.read('stimuli/pink_mono.wav')
+window_x_center = display_mode.w/2 #store the location of the screen's x center
+window_y_center = display_mode.h/2 #store the location of the screen's y center
 
 
 ########
 #Perform some calculations to convert stimulus measurements in degrees to pixels
 ########
 screen_width_in_degrees = math.degrees(math.atan((screen_width/2.0)/viewing_distance)*2)
-PPD = screen_size[0]/screen_width_in_degrees #compute the pixels per degree (PPD)
+PPD = display_mode.w/screen_width_in_degrees #compute the pixels per degree (PPD)
 
 instruction_font_size = int(instruction_size_in_degrees*PPD)
 feedback_font_size = int(feedback_size_in_degrees*PPD)
 
 offset = int(offset_in_degrees*PPD)
 
-flanker_seperation = int(flanker_seperation_in_degrees*PPD)
+flankers_seperation = int(flankers_seperation_in_degrees*PPD)
 
 target_width = int(round(target_width_in_degrees*PPD))
 
@@ -283,7 +337,6 @@ light_grey = (192, 192, 192)
 #Initialize the fonts
 ########
 
-print(feedback_font_size)
 exp_font = sdl2.ext.ttf.FontTTF(
 	font = 'stimuli/DejaVuSans.ttf'
 	, size = str(feedback_font_size)+'px'
@@ -382,56 +435,56 @@ for file in fish_files:
 
 target_height = fish_surfs['neutral']['image'].size[1]
 
-def blit_surf(src,dest,loc):
+def blit_surf(src,dst,loc):
 	sdl2.SDL_BlitSurface(
 		src
 		, None
-		, dest
+		, dst
 		, sdl2.SDL_Rect(
-			  int( dest.w/2 - src.w/2 + loc[0] )
-			, int( dest.w/2 - src.w/2 + loc[1] )
+			  int( dst.w/2 - src.w/2 + loc[0] )
+			, int( dst.h/2 - src.h/2 + loc[1] )
 			, src.w
 			, src.h
 		)
 	)
 
 
-def make_school_surf(center_surf,flanker_surf=None):
+def make_school_surf(center_surf,flankers_surf=None):
 	school_surf = sdl2.ext.surface._create_surface(
-		size = ( 3*target_width + 2*flanker_seperation , 3*target_height +2*flanker_seperation ) 
+		size = ( 3*target_width + 2*flankers_seperation , 3*target_height +2*flankers_seperation ) 
 		, fill = black
 	).contents
 	#central fish
 	blit_surf(
 		src = center_surf
-		, dest= school_surf
+		, dst = school_surf
 		, loc = (0,0)
 	)
-	if flanker_surf is not None:
-		vert_offset = target_height + flanker_seperation
+	if flankers_surf is not None:
+		vert_offset = target_height + flankers_seperation
 		#above center
 		blit_surf(
-			src = flanker_surf
-			, dest= school_surf
+			src = flankers_surf
+			, dst = school_surf
 			, loc = (0,-vert_offset)
 		)
 		#below center
 		blit_surf(
-			src = flanker_surf
-			, dest= school_surf
+			src = flankers_surf
+			, dst = school_surf
 			, loc = (0,vert_offset)
 		)
-		horiz_offset = target_width + flanker_seperation
+		horiz_offset = target_width + flankers_seperation
 		#left of center
 		blit_surf(
-			src = flanker_surf
-			, dest= school_surf
+			src = flankers_surf
+			, dst = school_surf
 			, loc = (-vert_offset,0)
 		)
 		#right of center
 		blit_surf(
-			src = flanker_surf
-			, dest= school_surf
+			src = flankers_surf
+			, dst = school_surf
 			, loc = (vert_offset,0)
 		)
 	return school_surf
@@ -461,19 +514,17 @@ def exit_safely():
 	tx_dict['parent'].put(kind='quit')
 	sys.exit()
 
+
 def check_triggers(exhaustive=False):
 	found_triggers = None
 	if exhaustive:
 		while not rx_dict['gamepad'].empty():
 			message = rx_dict['gamepad'].get()
-			if message['type'] == 'trigger':
-				found_triggers = message
+			found_triggers = message.kind
 	else:
 		if not rx_dict['gamepad'].empty():
 			message = rx_dict['gamepad'].get()
-			if message['type'] == 'trigger':
-				if message['value'] > trigger_criterion_value:
-					found_triggers = message
+			found_triggers = message.kind
 	return found_triggers
 
 #define a function that waits for a given duration to pass
@@ -482,10 +533,10 @@ def wait(duration=None,until=None,response_terminated=False):
 	found_triggers = None
 	while True:
 		if duration is not None:
-			if time.perf_counter() < (start + duration):
+			if time.perf_counter() > (start + duration):
 				break
 		if until is not None:
-			if time.perf_counter() < until:
+			if time.perf_counter() > until:
 				break
 		if response_terminated:
 			found_triggers = check_triggers()
@@ -643,39 +694,11 @@ def get_fixation_interval():
 	return fixation_interval
 
 
-#define a function that generates a randomized list of trial-by-trial stimulus information representing a factorial combination of the independent variables.
-def get_trials(task):
-	trials=[]
-	for flankers in flanker_list:
-		for target_location in target_location_list:
-			for target_direction in target_direction_list:
-				if task=='n':
-					warning_intensity_list = ['none','hi']
-				else:
-					warning_intensity_list = ['lo','hi']
-				for warning_intensity in warning_intensity_list:
-					for cue_validity in cue_validity_list:
-						fixation_interval = get_fixation_interval()
-						if cue_validity=='valid':
-							cued_location = target_location
-							trials.append([fixation_interval,warning_intensity,cue_validity,cued_location,flankers,target_location,target_direction])
-							if task=='n':
-								for i in range(arrow_validity_ratio-1):
-									trials.append([fixation_interval,warning_intensity,cue_validity,cued_location,flankers,target_location,target_direction])
-						elif cue_validity=='invalid':
-							if target_location=='right':
-								cued_location = 'left'
-							else:
-								cued_location = 'right'
-							trials.append([fixation_interval,warning_intensity,cue_validity,cued_location,flankers,target_location,target_direction])
-	random.shuffle(trials)
-	return trials
 
 
 #define a function to do stuff when Ss respond too soon
 def too_soon(this_trial_info,trial_list):
 	pre_target_response = 'TRUE'
-	this_trial_info[0] = get_fixation_interval()
 	trial_list.append(this_trial_info)
 	random.shuffle(trial_list)
 	#show feedback
@@ -684,12 +707,12 @@ def too_soon(this_trial_info,trial_list):
 	draw_feedback(feedback_text,'incorrect_feedback')
 	exp_window.refresh()
 	feedback_done_time = time.perf_counter()+feedback_duration
+	wait(until=feedback_done_time,response_terminated=False)
 	return trial_list
 
 #define a function to do stuff when Ss respond too soon
 def process_feedback_response(this_trial_info,trial_list):
 	pre_target_response = 'TRUE'
-	this_trial_info[0] = get_fixation_interval()
 	trial_list.append(this_trial_info)
 	random.shuffle(trial_list)
 	#show feedback
@@ -716,23 +739,23 @@ def process_feedback_response(this_trial_info,trial_list):
 
 def start_sounds():
 	background_sound.set_volume(warning_lo_volume)
-	background_sound.play(0)
-	warning_sound.set_volume(0)
-	warning_sound.play(0)
+	# background_sound.play(0)
+	# warning_sound.volume(0)
+	# warning_sound.play(0)
 
 def stop_sounds():
-	background_sound.stop()
-	warning_sound.stop()
+	background_sound.set_volume(0)
+	warning_sound.set_volume(0)
 
 
 #define a function that runs a block of trials
 def run_block(block,message_viewing_time):
 
 	#start the sounds
-	start_sounds()
+	# start_sounds()
 
 	#get trials
-	trial_list = get_trials(task)
+	trial_list = events_info.randomize(task)
 	if block=='practice':
 		trial_list = trial_list[0:trials_per_break]
 	
@@ -750,8 +773,21 @@ def run_block(block,message_viewing_time):
 
 		#get the trial info
 		trial_info = trial_list.pop(0)
-		fixation_interval,warning_intensity,cue_validity,cued_location,flankers,target_location,target_direction = trial_info
-		
+		fixation_interval = get_fixation_interval()
+		trial_info['fixation_interval'] = fixation_interval
+		warning_intensity = trial_info['warning_intensity']
+		cue_validity = trial_info['cue_validity']
+		flankers = trial_info['flankers']
+		target_location = trial_info['target_location']
+		target_direction = trial_info['target_direction']
+		if cue_validity=='valid':
+			cued_location = target_location
+		else:
+			if target_location=='left':
+				cued_location = 'right'
+			else:
+				cued_location = 'left'
+
 		#start the trial by showing the fixation screen
 		if task=='n':
 			screen_fill(black)
@@ -778,7 +814,7 @@ def run_block(block,message_viewing_time):
 		if task=='n':
 			#prep the target screen
 			screen_fill(black)
-			if warning_intensity!='none':
+			if warning_intensity!='lo':
 				draw_shape('circle')
 			else:
 				draw_shape('square')
@@ -796,16 +832,20 @@ def run_block(block,message_viewing_time):
 		if task=='x':
 			#show the cue
 			exp_window.refresh()
-		warning_on_time_delta1 = time.perf_counter() - warning_on_time
+		trial_info['warning_on_time_delta1'] = time.perf_counter() - warning_on_time
 
 		#present the warning
-		if warning_intensity!='none':
+		if task=='x':
 			if warning_intensity=='lo':
-				warning_sound.set_volume(warning_hi_volume)
+				warning_sound.set_volume(warning_lo_volume)
 			else:
 				warning_sound.set_volume(warning_hi_volume)
 			background_sound.set_volume(0)
-		warning_on_time_delta2 = time.perf_counter() - warning_on_time
+		else:
+			if warning_intensity=='hi':
+				warning_sound.set_volume(warning_lo_volume)
+				background_sound.set_volume(0)
+		trial_info['warning_on_time_delta2'] = time.perf_counter() - warning_on_time
 		
 		if check_triggers() is not None:
 			trial_list = too_soon(trial_info,trial_list)
@@ -826,12 +866,12 @@ def run_block(block,message_viewing_time):
 			screen_fill(black)
 			draw_feedback('+')
 			draw_target(flankers,target_location,target_direction)
-		warning_off_time_delta1 = time.perf_counter() - warning_off_time
+		trial_info['warning_off_time_delta1'] = time.perf_counter() - warning_off_time
 
 		#stop the warning
 		background_sound.set_volume(warning_lo_volume)
 		warning_sound.set_volume(0)
-		warning_off_time_delta2 = time.perf_counter() - warning_off_time
+		trial_info['warning_off_time_delta2'] = time.perf_counter() - warning_off_time
 		
 		if check_triggers() is not None:
 			trial_list = too_soon(trial_info,trial_list)
@@ -855,7 +895,7 @@ def run_block(block,message_viewing_time):
 		draw_target(flankers,target_location,target_direction)
 		exp_window.refresh() # this should block until actually shown, so time of prior refresh is 
 		target_on_time2 = time.perf_counter() - 1.0/60.0
-		target_on_time_delta = target_on_time2 - target_on_time
+		trial_info['target_on_time_delta'] = target_on_time2 - target_on_time
 
 		if check_triggers() is not None:
 			trial_list = too_soon(trial_info,trial_list)
@@ -1194,23 +1234,9 @@ inputs = {
 	'handedness':handedness,
 }
 
-{
-	'fixation_interval':{'col':1},
-	'warning_intensity':{'col':2,'mapping':{}},
-	'':{'col':3,'mapping':{}},
-	'':{'col':4,'mapping':{}},
-	'':{'col':5,'mapping':{}},
 
-
-	'block':{'col':1,'mapping':{ value['exercise']:key for key,value in block_dict.items()}},
-	'set':{'col':2},
-	'time':{'col':3},
-	'side':{'col':5,'mapping':{}},
-}
-
-#encode & send header to writer
-header = json.dumps({'inputs':inputs,'event_cols':event_cols})
-tx_dict['writer'].put(kind='attr',payload={'name':'header','value':header})
+#encode & send meta-data to writer
+tx_dict['writer'].put(kind='attr',payload={'name':'meta','value':json.dumps({'inputs':inputs,'colnames_and_mappings':events_info.od})})
 
 if first_task=='n':
 	task_order = ['n','x']
@@ -1222,8 +1248,6 @@ else:
 # show_message('Press any button to begin general instrunctions.')
 # do_general_demo()
 # show_message('Press any button to begin instructions specific to first part of the experiment.')
-
-
 
 block = 0
 for repetition in range(2):
